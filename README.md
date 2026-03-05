@@ -73,3 +73,14 @@ Finally to flash the firmware to the board, connect your board to your computer,
 - In nRF build configuration, at the board target it does have uf2 option for this board, but for some reason it cant be flash to the board so i have to convert the hex myself
 - In both of the code for the mouse and the receiver, there is esb address for rf signal, you should change it to your desire address (base_addr_0), and the address should be the same for both sides.
 <img width="400" alt="image" src="https://github.com/user-attachments/assets/4b6a9a19-ab08-438f-8c21-44211b89c958" />
+
+- In mouse code, i commented out some of the interupt code, last time i was testing the motion pin and interupt but it feel delay, so i kept the code with polling style. because of it the battery usage is around 1.5 days of intense use with some break (im not familiar with embedded stuff, so my code is kinda ugly).
+- When mouse idle for more than 4 mins, it will shutdown until you press left click.
+- DPI value in mouse code is hand measurement, i use a ruler to calculate the resolution value of the mouse sensor, around 102 is equilevent to 3200 DPI.
+- Also in mouse code, i commented out the setting function, nRF have local storage for setting, but last time i used it somehow brick the board. So for safety concern i don't use that function.
+
+
+# Demo (early prototype)
+https://github.com/user-attachments/assets/07815808-ed37-4bc4-9238-eaf0a6d82ae9
+
+
