@@ -31,3 +31,18 @@ A note for the battery that if you use 500mah or larger battery, please connect 
 <img width="544" height="585" alt="image" src="https://github.com/user-attachments/assets/3bf085cd-d4c8-43bd-872d-8e1adc9aac41" />
 
 
+# PCB:
+This design has 3 parts but i had to combine them in to one board to cut cost. You can safely cut it with handsaw, and use sand paper to smooth the edge.
+<img width="1001" height="1182" alt="image" src="https://github.com/user-attachments/assets/e6efb828-783c-4dfa-882b-063c12f4255b" />
+
+
+# Mouse case
+| component | quanlity | note |
+| :-------- | :------: | -----|
+| M2 Hex Female-Female Standoff 4mm | 4 | for main pcb |
+| M2 Hex Female-Female Standoff 10mm | 2 | for scroll pcb standoff |
+| M2 bolt 5mm | several | |
+| M2 nut | several | |
+
+I followed PAW3327DB‐TWQU [datasheet](https://gzhls.at/blob/ldb/e/9/c/9/db61cdd17b4364badf6f0cfc864d7ef28cb3.pdf) (P.11-15).
+In this repo i design one with autocad (i dont have knowledge about 3d print), it just a prototype but i used it for sevaral months now, seems fine.
