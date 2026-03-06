@@ -63,7 +63,7 @@
 #define SLEEP_THRESHOLD_MS      1000*60*4  // time before going to sleep
 #define IDLE_SLEEP_MS           100
 
-const uint8_t mouse_dpi[] = {13, 26, 52, 104, 156};
+const uint8_t mouse_dpi[] = {13, 26, 52, 104, 158};
 const uint8_t mouse_dpi_size = sizeof(mouse_dpi) / sizeof(mouse_dpi[0]);
 uint8_t current_dpi = 3;
 
@@ -97,11 +97,12 @@ static const struct spi_config spi_cfg = {
 static const struct device *spi_dev;
 static const struct device *gpio_0_dev;
 static const struct device *gpio_1_dev;
-//static struct gpio_callback motion_cb_data;
+
+// static struct gpio_callback motion_cb_data;
 // Work queue for handling SPI reads
-//static struct k_work motion_work;
+// static struct k_work motion_work;
 // Semaphore to prevent interrupt overload
-//static K_SEM_DEFINE(motion_sem, 1, 1);
+// static K_SEM_DEFINE(motion_sem, 1, 1);
 
 struct mouse_report {
     uint8_t buttons;
@@ -165,11 +166,11 @@ void send_mouse_report_tx(struct mouse_packet *pkt){
 /* --- SPI helpers --- */
 static inline void cs_select(void) {
     gpio_pin_set(gpio_0_dev, CS_PIN, 0);
-    //k_busy_wait(5);
+    // k_busy_wait(50);
 }
 static inline void cs_deselect(void) {
     gpio_pin_set(gpio_0_dev, CS_PIN, 1);
-    //k_busy_wait(30);
+    // k_busy_wait(50);
 }
 
 /* --- SPI read/write --- */
@@ -203,112 +204,42 @@ static void paw_write_reg(uint8_t reg, uint8_t val)
     cs_select();
     spi_write(spi_dev, &spi_cfg, &txs);
     cs_deselect();
-    k_busy_wait(150);
 }
 
 /* --- Burst motion read (0x16) --- */
 static int paw_read_burst(struct paw_burst_data *burst_data) {
-    // uint8_t tx_buf[7] = { 0x16, 0, 0, 0, 0, 0, 0 };
-    // uint8_t rx_buf[7] = { 0 };
+    uint8_t cmd = 0x16;
 
-    // struct spi_buf txb = { .buf = tx_buf, .len = sizeof(tx_buf) };
-    // struct spi_buf rxb = { .buf = rx_buf, .len = sizeof(rx_buf) };
-    // struct spi_buf_set txs = { .buffers = &txb, .count = 1 };
-    // struct spi_buf_set rxs = { .buffers = &rxb, .count = 1 };
+    struct spi_buf txb = { .buf = &cmd, .len = 1 };
+    struct spi_buf_set tx = { .buffers = &txb, .count = 1 };
 
-    // cs_select();
-    // int ret = spi_transceive(spi_dev, &spi_cfg, &txs, &rxs);
-    // cs_deselect();
-    // if (ret) {
-    //     //LOG_ERR("SPI burst read error %d", ret);
-    //     return ret;
-    // }
+    cs_select();
+    spi_write(spi_dev, &spi_cfg, &tx);
 
-    // burst_data->motion     = rx_buf[1];
-    // burst_data->delta_x_l  = rx_buf[2];
-    // burst_data->delta_x_h  = rx_buf[3];
-    // burst_data->delta_y_l  = rx_buf[4];
-    // burst_data->delta_y_h  = rx_buf[5];
-    // burst_data->squal      = rx_buf[6];   // add this
+    k_busy_wait(35);
 
-    // return 0;
+    uint8_t tx_dummy[7] = {0};
+    uint8_t rx_buf[7] = {0};
+
+    struct spi_buf txb2 = { .buf = tx_dummy, .len = 7 };
+    struct spi_buf rxb2 = { .buf = rx_buf, .len = 7 };
+
+    struct spi_buf_set tx2 = { .buffers = &txb2, .count = 1 };
+    struct spi_buf_set rx2 = { .buffers = &rxb2, .count = 1 };
+
+    spi_transceive(spi_dev, &spi_cfg, &tx2, &rx2);
+    cs_deselect();
+
+    burst_data->motion     = rx_buf[1];
+    burst_data->delta_x_l  = rx_buf[2];
+    burst_data->delta_x_h  = rx_buf[3];
+    burst_data->delta_y_l  = rx_buf[4];
+    burst_data->delta_y_h  = rx_buf[5];
+    burst_data->squal      = rx_buf[6];
+    k_busy_wait(500);
     
-    // Read the motion register to clear the interrupt and get data
-    if (paw_read_reg(PAW3327_MOTION_REG, &burst_data->motion) == 0) {
-        if (burst_data->motion & PAW3327_MOTION_BIT) {
-            // Read delta registers with a small delay to avoid bus contention
-            //k_busy_wait(1);
-            paw_read_reg(PAW3327_DELTA_X_L_REG, &burst_data->delta_x_l);
-            //k_busy_wait(1);
-            paw_read_reg(PAW3327_DELTA_X_H_REG, &burst_data->delta_x_h);
-            //k_busy_wait(1);
-            paw_read_reg(PAW3327_DELTA_Y_L_REG, &burst_data->delta_y_l);
-            //k_busy_wait(1);
-            paw_read_reg(PAW3327_DELTA_Y_H_REG, &burst_data->delta_y_h);
-            //k_busy_wait(1);
-            paw_read_reg(PAW3327_SQUAL, &burst_data->squal);
-        }
-        return 0;
-    }
-
-    return 1;
+    return 0;
 }
-
-// void motion_handler(struct k_work *item) {
-//     uint8_t motion_reg_val;
-//     uint8_t dx_low, dx_high, dy_low, dy_high;
-//     int16_t dx, dy;
-    
-//     // Read the motion register to clear the interrupt and get data
-//     if (paw_read_reg(PAW3327_MOTION_REG, &motion_reg_val) == 0) {
-//         if (motion_reg_val & PAW3327_MOTION_BIT) {
-//             // Read delta registers with a small delay to avoid bus contention
-//             k_busy_wait(1);
-//             paw_read_reg(PAW3327_DELTA_X_L_REG, &dx_low);
-//             k_busy_wait(1);
-//             paw_read_reg(PAW3327_DELTA_X_H_REG, &dx_high);
-//             k_busy_wait(1);
-//             paw_read_reg(PAW3327_DELTA_Y_L_REG, &dy_low);
-//             k_busy_wait(1);
-//             paw_read_reg(PAW3327_DELTA_Y_H_REG, &dy_high);
-            
-//             dx = (int16_t)((dx_high << 8) | dx_low);
-//             dy = (int16_t)((dy_high << 8) | dy_low);
-
-//             //LOG_INF("Motion detected! DeltaX: %d, DeltaY: %d", dx, dy);
-//         }
-//     }
-
-//     k_sem_give(&motion_sem);
-// }
-
-// void motion_handler(struct k_work *item) {
-//     struct paw_burst_data burst_data;
-//     int16_t dx, dy;
-//     uint8_t motion_reg;
-//     // Read all motion data with a single burst transaction
-//     paw_read_reg(PAW3327_MOTION_REG, &motion_reg);
-//     if (paw_read_burst(&burst_data) == 0) {
-//         // If the MOTION_BIT is set, process the motion data
-//         if (burst_data.motion & PAW3327_MOTION_BIT) {
-//             dx = (int16_t)((burst_data.delta_x_h << 8) | burst_data.delta_x_l);
-//             dy = (int16_t)((burst_data.delta_y_h << 8) | burst_data.delta_y_l);
-
-//             //LOG_INF("Motion detected! DeltaX: %d, DeltaY: %d", dx, dy);
-//         }
-//     }
-    
-//     // Give the semaphore back, allowing a new interrupt to be processed.
-//     k_sem_give(&motion_sem);
-// }
-
-// void motion_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-//     // Only submit to the work queue if the semaphore is available.
-//     // This prevents the queue from being flooded with events.
-//     if (k_sem_take(&motion_sem, K_NO_WAIT) == 0) {
-//         k_work_submit(&motion_work);
-//     }
-// }
 
 void paw3327_init(void){
     uint8_t id, inv, dummy;
@@ -458,16 +389,16 @@ int esb_init_tx(void){
     err = esb_set_base_address_0(base_addr_0);
     if (err) {
             return err;
+        }
+        err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
+        if (err) {
+            return err;
+        }
+        
+        return 0;
     }
-    err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
-	if (err) {
-		return err;
-	}
     
-    return 0;
-}
-
-/* --- Main --- */
+    /* --- Main --- */
 int main(void){   
     uint32_t start_cycles = k_cycle_get_32();
     // settings_subsys_init();
@@ -485,6 +416,7 @@ int main(void){
     // }
     nrf_power_dcdcen_set(NRF_POWER, true);
     start_hfxo_properly();
+    // ensure_hfclk_running();
     int err = esb_init_tx();
 	if (err) {
 		//LOG_ERR("ESB initialization failed, err %d", err);
@@ -524,15 +456,13 @@ int main(void){
     
      // Initialize the work queue item
     // k_work_init(&motion_work, motion_handler);
-    // err = gpio_pin_interrupt_configure(gpio_1_dev, MOTION_PIN, GPIO_INT_EDGE_TO_ACTIVE);
+    // err = gpio_pin_interrupt_configure(gpio_1_dev, MOTION_PIN, GPIO_INT_EDGE_FALLING);
     // if (err) {
     //     //LOG_ERR("Error configuring motion interrupt: %d", err);
     //     return err;
     // }
     // gpio_init_callback(&motion_cb_data, motion_callback, BIT(MOTION_PIN));
     // gpio_add_callback(gpio_1_dev, &motion_cb_data);
-    // k_msleep(100);
-    
     
     paw3327_init();
     
@@ -543,9 +473,6 @@ int main(void){
     float scale = 1.49f;
     while (1) {
         int64_t now = k_uptime_get();
-        struct paw_burst_data burst;
-        pkt.dx = 0;
-        pkt.dy = 0;
         // bool wake_event = !gpio_pin_get(gpio_0_dev, BUTTON1_PIN) ||
         //               !gpio_pin_get(gpio_0_dev, BUTTON2_PIN);
 
@@ -558,8 +485,12 @@ int main(void){
         //     is_sensor_sleeping = false;
         //     sleep_time = now;
         // }
-        
-        if (!is_sensor_sleeping){
+
+        struct paw_burst_data burst;
+        pkt.dx = 0;
+        pkt.dy = 0;
+        int motion_pin_state = gpio_pin_get(gpio_1_dev, MOTION_PIN);
+        if (motion_pin_state == 0) {
             if (paw_read_burst(&burst) == 0 ) { //
                 if (burst.motion & PAW3327_MOTION_BIT ) { //
                     
@@ -568,26 +499,16 @@ int main(void){
                     
                     dx = CLAMP(dx, -127, 127) ;
                     dy = CLAMP(dy, -127, 127) ;
-
-                    // flip x
+                    // // flip x
                     dx *= -1;
-                    
-                    //uint16_t squal = 0;
-                    //paw_read_reg(0x1B, &squal);
+
                     pkt.dx =  dx;
                     pkt.dy =  dy;
                     is_package_changed = true;
-                    if (current_poll_interval != POLL_INTERVAL_CPU_CLOCK) 
-                        current_poll_interval = POLL_INTERVAL_CPU_CLOCK;
-                    
-                    //send_mouse_report(hid_dev, &dx_scaled, &dy_scaled);
-                    
-                    ////LOG_INF("Motion detected! DeltaX h: %d, DeltaX l: %d, squal: %d", dx_scaled, dy_scaled, burst.squal);
-                    // //LOG_INF("Motion detected! DeltaY h: %d, DeltaY l: %d, ", burst.delta_y_h, burst.delta_y_l);
                 }
             }
         }
-        
+
         button_check(0, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON1_PIN), now);
         button_check(1, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON2_PIN), now);
         button_check(2, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON4_PIN), now);
@@ -644,6 +565,8 @@ int main(void){
             is_package_changed = false;
             pkt.wheel = 0;
             sleep_time = now;
+            if (current_poll_interval != POLL_INTERVAL_CPU_CLOCK) 
+                current_poll_interval = POLL_INTERVAL_CPU_CLOCK;
         }
 
         if (now - sleep_time >= SLEEP_THRESHOLD_MS) {
@@ -676,7 +599,7 @@ int main(void){
             k_msleep(current_poll_interval);
         }else{
             while (k_cycle_get_32() - start_cycles < current_poll_interval) {
-                
+
             }
         }
     }
