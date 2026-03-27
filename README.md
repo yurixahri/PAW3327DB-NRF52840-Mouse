@@ -17,7 +17,7 @@ This is a mouse project for PAW3327DB‐TWQU sensor and Supermini nrf52840 board
 | Molex picoblade male cable 1.25mm 4,3,2 pins | several | just buy more than you need, in case of you want to adjust the cable length |
 | 3x2x9 500mah battery | 1 | |
 | Low profile keyboard switch | 2 | any brand will work |
-| Mouse switch (2 pins) | 3 | |
+| Mouse switch (2 pins) | 3 | So i used mouse switch and noticed that the its height is quite high and block the touch point on scroll pcb, so i instead use 3x6x2.5mm smd button (2 pins) |
 | 6x6mm tactile switch | 2 | for DPI and reset button |
 | 3 pins spdt slide switch | 1 | to turn on/off battery |
 
@@ -44,7 +44,7 @@ This design has 3 parts but i had to combine them in to one board to cut cost. Y
 | :-------- | :------: | -----|
 | M2 Hex Female-Female Standoff 4mm | 4 | for main pcb |
 | M2 Hex Female-Female Standoff 10mm | 2 | for scroll pcb standoff |
-| M2 bolt 5mm | several | |
+| M2 bolt 6mm | several | |
 | M2 nut | several | |
 
 I followed PAW3327DB‐TWQU [datasheet](https://gzhls.at/blob/ldb/e/9/c/9/db61cdd17b4364badf6f0cfc864d7ef28cb3.pdf) (P.11-15).
