@@ -36,6 +36,7 @@
 #define MOTION_PIN              4  
 #define BUTTON1_PIN             31  
 #define BUTTON2_PIN             29 
+#define BUTTON3_PIN             13
 #define BUTTON4_PIN             6 
 #define BUTTON5_PIN             8
 #define TOUCH1_PIN              2
@@ -444,6 +445,7 @@ int main(void){
 
     gpio_pin_configure(gpio_0_dev, BUTTON1_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON2_PIN, GPIO_INPUT | GPIO_PULL_UP);
+	gpio_pin_configure(gpio_1_dev, BUTTON3_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON4_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON5_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, TOUCH1_PIN, GPIO_INPUT );
@@ -511,7 +513,8 @@ int main(void){
 
         button_check(0, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON1_PIN), now);
         button_check(1, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON2_PIN), now);
-        button_check(2, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON4_PIN), now);
+		button_check(2, &pkt, !gpio_pin_get(gpio_1_dev, BUTTON3_PIN), now);
+        button_check(4, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON4_PIN), now);
         button_check(3, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON5_PIN), now);
 
         // DPI button
