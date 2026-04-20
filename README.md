@@ -83,5 +83,10 @@ Finally to flash the firmware to the board, connect your board to your computer,
 # Demo (early prototype)
 https://github.com/user-attachments/assets/07815808-ed37-4bc4-9238-eaf0a6d82ae9
 
+New version (I cheaped out all Molex picoblade for this prototype):
+
+<img width="1343" height="974" alt="image" src="https://github.com/user-attachments/assets/4ffcccba-1fe7-4424-9304-79bb0308a3fb" />
+
+
 # Thought
 The cost per mouse is arround 12-15$, which is quite cheap to be fair, especially when you buy the components in bulk (1$ for 20 TTP223 sensors!). Goodluck if you want to make mouse!
