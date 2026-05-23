@@ -378,8 +378,9 @@ int esb_init_tx(void){
     config.bitrate = ESB_BITRATE_2MBPS;
     config.protocol = ESB_PROTOCOL_ESB_DPL;
     config.selective_auto_ack = true;
-    // config.retransmit_count = 1;
-    // config.retransmit_delay = 250; // in microseconds
+    config.tx_output_power = ESB_TX_POWER_4DBM;
+    config.retransmit_count = 3;
+    config.retransmit_delay = 250; // in microseconds
     
 
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING)) {

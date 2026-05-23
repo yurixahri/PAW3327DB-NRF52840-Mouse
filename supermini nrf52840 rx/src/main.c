@@ -116,6 +116,7 @@ int esb_init_rx(void) {
     config.bitrate = ESB_BITRATE_2MBPS;
     config.protocol = ESB_PROTOCOL_ESB_DPL;
     config.selective_auto_ack = true;
+    config.tx_output_power = ESB_TX_POWER_4DBM;
 
     if (IS_ENABLED(CONFIG_ESB_FAST_SWITCHING)) {
 		config.use_fast_ramp_up = true;
