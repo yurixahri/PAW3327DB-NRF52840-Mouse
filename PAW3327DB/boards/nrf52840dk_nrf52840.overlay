@@ -1,4 +1,8 @@
 / {
+    chosen {
+        zephyr,settings-partition = &storage_partition;
+    };
+
     aliases {
         spi-paw3327 = &spi1;
     };
@@ -13,6 +17,19 @@
 //         in-report-size = <4>;
 //     };
 // };
+
+&flash0 {
+    partitions {
+        /* Delete ONLY the default storage partition that caused the error */
+        /delete-node/ partition@f8000;
+
+        /* Add your storage partition exactly where slot0_partition ends */
+        storage_partition: partition@e4000 {
+            label = "storage";
+            reg = <0x000e4000 0x00008000>; /* 32KB space, safe from bootloader */
+        };
+    };
+};
 
 &pinctrl {
     spi1_default: spi1_default {

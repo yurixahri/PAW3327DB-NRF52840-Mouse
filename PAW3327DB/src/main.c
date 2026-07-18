@@ -4,7 +4,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/gpio.h>
-// #include <zephyr/logging/log.h>
+#include <zephyr/logging/log.h>
 
 #include <zephyr/usb/usb_device.h>
 #include <zephyr/usb/class/usb_hid.h>
@@ -13,18 +13,28 @@
 #include <esb.h>
 
 #include <zephyr/sys/poweroff.h>
-// #include <zephyr/settings/settings.h>
+
+#include <zephyr/settings/settings.h>
 
 #include <hal/nrf_power.h>
 #include <hal/nrf_clock.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 
+#include <zephyr/drivers/adc.h>
+#include <hal/nrf_saadc.h>
 
 #define M_PI       3.14159265358979323846
 #define DEG_TO_RAD(degrees) ((float)(degrees) * M_PI / 180.0)
 
-// LOG_MODULE_REGISTER(paw3327, LOG_LEVEL_INF);
+//LOG_MODULE_REGISTER(paw3327, //LOG_LEVEL_INF);
+#define ADC_NODE                DT_NODELABEL(adc)    
+#define ADC_RESOLUTION          12                   
+#define ADC_GAIN                ADC_GAIN_1_6         
+#define ADC_REFERENCE           ADC_REF_INTERNAL     
+#define ADC_ACQUISITION_TIME    ADC_ACQ_TIME_DEFAULT
+#define ADC_CHANNEL_ID          0                    
+#define ADC_CHANNEL_INPUT       NRF_SAADC_INPUT_VDD
 
 #define SPI_DEV                 DT_NODELABEL(spi1)
 #define GPIO_0                  DT_NODELABEL(gpio0)
@@ -58,13 +68,15 @@
 #define SCROLL_DELAY_HOLD_TIME  250 //ms
 #define SCROLL_INTERVAL_TIME    25 //ms
 
-#define POLL_INTERVAL_CPU_CLOCK 64000  // active polling interval
+#define POLL_INTERVAL_ACTIVE_MS 1  // active polling interval
 #define POLL_INTERVAL_IDLE_MS   100   // idle polling interval
 #define IDLE_THRESHOLD_MS       1000*10  // time before going idle
 #define SLEEP_THRESHOLD_MS      1000*60*4  // time before going to sleep
 #define IDLE_SLEEP_MS           100
+#define BATT_CHECK_INTERVAL     1000*60*2
+#define DPI_SAVE_INTERVAL_MS         1000*5 // only save DPI to flash every 5 seconds to reduce flash wear
 
-const uint8_t mouse_dpi[] = {13, 26, 52, 104, 158};
+const uint8_t mouse_dpi[] = {11, 21, 42, 84, 126};
 const uint8_t mouse_dpi_size = sizeof(mouse_dpi) / sizeof(mouse_dpi[0]);
 uint8_t current_dpi = 3;
 
@@ -99,18 +111,19 @@ static const struct device *spi_dev;
 static const struct device *gpio_0_dev;
 static const struct device *gpio_1_dev;
 
+
 // static struct gpio_callback motion_cb_data;
 // Work queue for handling SPI reads
 // static struct k_work motion_work;
 // Semaphore to prevent interrupt overload
 // static K_SEM_DEFINE(motion_sem, 1, 1);
 
-struct mouse_report {
-    uint8_t buttons;
-    int8_t x;
-    int8_t y;
-    int8_t wheel;
-};
+// struct mouse_report {
+//     uint8_t buttons;
+//     int8_t x;
+//     int8_t y;
+//     int8_t wheel;
+// };
 
 struct key_debounce{
     bool is_pressed;
@@ -121,9 +134,11 @@ struct key_debounce{
 };
 
 bool is_package_changed = false;
+bool is_dpi_button_pressed = false;
+
 bool button_pressed[5];
 int64_t de_bounce[5];
-bool is_dpi_button_pressed = false;
+
 static struct mouse_packet pkt;
 
 bool scroll_up = false;
@@ -158,10 +173,13 @@ void send_mouse_report_tx(struct mouse_packet *pkt){
     struct esb_payload payload = {
         .length = sizeof(struct mouse_packet),
         .pipe = 0,
+        .noack = 1,
     };
     memcpy(payload.data, pkt, sizeof(struct mouse_packet));
-    esb_write_payload(&payload);
-    esb_flush_tx();
+    if (esb_write_payload(&payload) != 0) {
+        esb_flush_tx();
+        esb_write_payload(&payload);
+    }
 }
 
 /* --- SPI helpers --- */
@@ -217,7 +235,7 @@ static int paw_read_burst(struct paw_burst_data *burst_data) {
     cs_select();
     spi_write(spi_dev, &spi_cfg, &tx);
 
-    k_busy_wait(35);
+    k_usleep(35);
 
     uint8_t tx_dummy[7] = {0};
     uint8_t rx_buf[7] = {0};
@@ -237,7 +255,7 @@ static int paw_read_burst(struct paw_burst_data *burst_data) {
     burst_data->delta_y_l  = rx_buf[4];
     burst_data->delta_y_h  = rx_buf[5];
     burst_data->squal      = rx_buf[6];
-    k_busy_wait(500);
+    k_usleep(250);
     
     return 0;
 }
@@ -246,9 +264,6 @@ void paw3327_init(void){
     uint8_t id, inv, dummy;
 
     //LOG_INF("Initializing PAW3327...");
-
-    /* Wait for power-up (VDD stable) */
-    k_msleep(50);
 
     /* Power-up reset */
     paw_write_reg(0x3A, 0x5A);      // POWER_UP_RESET
@@ -264,7 +279,7 @@ void paw3327_init(void){
 
     /* Exit shutdown */
     paw_write_reg(0x3B, 0x00);      // SHUTDOWN = 0 → Active mode
-    k_busy_wait(500);               // Allow internal oscillator & LED to stabilize
+    k_msleep(50);              // Allow internal oscillator & LED to stabilize
 
     /* Optional internal setup (safe defaults) */
     paw_write_reg(0x1A, 0x03);      // RIPPLE_CONTROL (default)
@@ -273,11 +288,13 @@ void paw3327_init(void){
     paw_write_reg(0x20, 0x00);      // AXIS_CONTROL normal
 
     /* Dummy read to clear motion latch */
+    paw_read_reg(0x01, &dummy);
     paw_read_reg(0x02, &dummy);
+    paw_read_reg(0x03, &dummy);
+    paw_read_reg(0x04, &dummy);
+    paw_read_reg(0x05, &dummy);
 
-    /*Allow first frame to be captured */
-    k_msleep(100);
-    paw_read_reg(0x1B, &dummy);     
+    k_msleep(10);
     //LOG_INF("Resolution %d", dummy);
     //LOG_INF("PAW3327 initialization complete");
 }
@@ -331,25 +348,40 @@ void start_hfxo_properly(void) {
 // static void dpi_save_work_handler(struct k_work *work)
 // {
 //     ARG_UNUSED(work);
-//     printk(">> dpi_save_work_handler: saving dpi=%u\n", current_dpi);
+//     //LOG_ERR(">> dpi_save_work_handler: saving dpi=%u\n", current_dpi);
 //     int rc = settings_save_one("dpi/index", &current_dpi, sizeof(current_dpi));
-//     printk(">> settings_save_one returned %d\n", rc);
+//     //LOG_ERR(">> settings_save_one returned %d\n", rc);
 //     if (rc) {
 //         //LOG_ERR("Failed to save dpi: %d", rc);
 //     } else {
 //         //LOG_INF("Saved dpi index=%u", current_dpi);
 //     }
 // }
+static int dpi_setting_set(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg) {
+    if (strcmp(name, "dpi") == 0) {
+        read_cb(cb_arg, &current_dpi, sizeof(current_dpi));
+        return 0;
+    }
+    return -ENOENT;
+}
+
+static struct settings_handler dpi_handler = {
+    .name = "mouse",
+    .h_set = dpi_setting_set
+};
+
+void save_dpi() {
+    //LOG_INF("DPI saved to %d\n", current_dpi);
+    settings_save_one("mouse/dpi", &current_dpi, sizeof(current_dpi));
+}
 
 void change_dpi(){
     current_dpi++;
     if (current_dpi >= mouse_dpi_size){
         current_dpi = 0;
     }
-    /* Update sensor immediately */
+    //LOG_INF("DPI changed to %d\n", current_dpi);
     paw_write_reg(0x1B, mouse_dpi[current_dpi]);
-    /* Defer flash write to workqueue to avoid timing / power issues */
-    // k_work_submit(&dpi_save_work);
 }
 
 void event_handler(struct esb_evt const *event){
@@ -390,48 +422,51 @@ int esb_init_tx(void){
     int err = esb_init(&config);
     err = esb_set_base_address_0(base_addr_0);
     if (err) {
-            return err;
-        }
-        err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
-        if (err) {
-            return err;
-        }
-        
-        return 0;
+        return err;
     }
+    err = esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
+    if (err) {
+        return err;
+    }
+        
+    return 0;
+}
     
     /* --- Main --- */
-int main(void){   
-    uint32_t start_cycles = k_cycle_get_32();
-    // settings_subsys_init();
-    // int reg_rc = settings_register(&dpi_settings_handler);
-    // printk(">> settings_register returned %d\n", reg_rc);
-    // if (reg_rc) {
-    //     //LOG_ERR("settings_register failed: %d", reg_rc);
+int main(void){
+
+    k_msleep(200); // Wait for system to stabilize
+
+    int err;
+    settings_subsys_init();
+    settings_register(&dpi_handler);
+    settings_load();
+    //LOG_INF("Loaded DPI from flash: %d\n", current_dpi);
+    // if (err) {
+    //     //LOG_ERR("Error reading DPI from flash: %d\n", err);
+    //     while(1) { k_msleep(1000); }
     // }
-    // int rc = settings_load();
-    // printk(">> settings_load returned %d\n", rc);
-    // if (rc) {
-    //     //LOG_ERR("Settings load failed: %d", rc);
-    // } else {
-    //     //LOG_INF("Settings loaded");
-    // }
+
+
     nrf_power_dcdcen_set(NRF_POWER, true);
     start_hfxo_properly();
     // ensure_hfclk_running();
-    int err = esb_init_tx();
+    err = esb_init_tx();
 	if (err) {
 		//LOG_ERR("ESB initialization failed, err %d", err);
 		return 0;
 	}
 
-    printk("PAW3327 start test...\n");
+    // k_msleep(3000);
+
+    //LOG_INF("PAW3327 start test...\n");
     spi_dev = DEVICE_DT_GET(SPI_DEV);
     gpio_0_dev = DEVICE_DT_GET(GPIO_0);
     gpio_1_dev = DEVICE_DT_GET(GPIO_1);
 
-    while (!device_is_ready(spi_dev)){
-        ;;
+    if (!device_is_ready(spi_dev)) {
+        //LOG_ERR("SPI not ready\n");
+        return -ENODEV;
     }
 
     if (!device_is_ready(gpio_0_dev) || !device_is_ready(gpio_1_dev)) {
@@ -439,14 +474,12 @@ int main(void){
         return 1;
     }
 
-    
-
     gpio_pin_configure(gpio_0_dev, CS_PIN, GPIO_OUTPUT_HIGH);
     gpio_pin_configure(gpio_1_dev, MOTION_PIN, GPIO_INPUT | GPIO_PULL_UP);
 
     gpio_pin_configure(gpio_0_dev, BUTTON1_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON2_PIN, GPIO_INPUT | GPIO_PULL_UP);
-	gpio_pin_configure(gpio_1_dev, BUTTON3_PIN, GPIO_INPUT | GPIO_PULL_UP);
+    gpio_pin_configure(gpio_1_dev, BUTTON3_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON4_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, BUTTON5_PIN, GPIO_INPUT | GPIO_PULL_UP);
     gpio_pin_configure(gpio_0_dev, TOUCH1_PIN, GPIO_INPUT );
@@ -456,8 +489,7 @@ int main(void){
     gpio_pin_configure(gpio_0_dev, VCC_CUTOFF_GPIO_PIN, GPIO_OUTPUT_ACTIVE);
     gpio_pin_set(gpio_0_dev, VCC_CUTOFF_GPIO_PIN, 1);
 
-    
-     // Initialize the work queue item
+    // Initialize the work queue item
     // k_work_init(&motion_work, motion_handler);
     // err = gpio_pin_interrupt_configure(gpio_1_dev, MOTION_PIN, GPIO_INT_EDGE_FALLING);
     // if (err) {
@@ -470,12 +502,18 @@ int main(void){
     paw3327_init();
     
     int64_t sleep_time = 0;
-    int current_poll_interval = POLL_INTERVAL_CPU_CLOCK;
-    
-    bool is_sensor_sleeping = false;
-    float scale = 1.49f;
+    int64_t last_dpi_save = 0;
+    bool is_dpi_save_pending = false;
+    int current_poll_interval = POLL_INTERVAL_ACTIVE_MS;
+
+    struct k_timer polling_timer;
+    k_timer_init(&polling_timer, NULL, NULL);
+    k_timer_start(&polling_timer, K_MSEC(current_poll_interval), K_MSEC(current_poll_interval));
+    // bool is_sensor_sleeping = false;
+    // float scale = 1.49f;
     while (1) {
         int64_t now = k_uptime_get();
+        k_timer_status_sync(&polling_timer);
         // bool wake_event = !gpio_pin_get(gpio_0_dev, BUTTON1_PIN) ||
         //               !gpio_pin_get(gpio_0_dev, BUTTON2_PIN);
 
@@ -495,7 +533,7 @@ int main(void){
         int motion_pin_state = gpio_pin_get(gpio_1_dev, MOTION_PIN);
         if (motion_pin_state == 0) {
             if (paw_read_burst(&burst) == 0 ) { //
-                if (burst.motion & PAW3327_MOTION_BIT ) { //
+                if (burst.motion & PAW3327_MOTION_BIT && burst.squal > 10 ) { //
                     
                     int16_t dx = ((burst.delta_x_h << 8) | burst.delta_x_l);
                     int16_t dy = ((burst.delta_y_h << 8) | burst.delta_y_l);
@@ -514,7 +552,7 @@ int main(void){
 
         button_check(0, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON1_PIN), now);
         button_check(1, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON2_PIN), now);
-		button_check(2, &pkt, !gpio_pin_get(gpio_1_dev, BUTTON3_PIN), now);
+        button_check(2, &pkt, !gpio_pin_get(gpio_1_dev, BUTTON3_PIN), now);
         button_check(4, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON4_PIN), now);
         button_check(3, &pkt, !gpio_pin_get(gpio_0_dev, BUTTON5_PIN), now);
 
@@ -522,6 +560,8 @@ int main(void){
         if (!gpio_pin_get(gpio_1_dev, DPI_PIN)){
             if (!is_dpi_button_pressed){
                 change_dpi();
+                last_dpi_save = now;
+                is_dpi_save_pending = true;
                 is_dpi_button_pressed = true;
             }
         }else{
@@ -565,12 +605,16 @@ int main(void){
         }
 
         if (is_package_changed){
+            //LOG_INF("Sending packet: buttons=%02X, dx=%d, dy=%d, wheel=%d\n", pkt.buttons, pkt.dx, pkt.dy, pkt.wheel);
             send_mouse_report_tx(&pkt);
             is_package_changed = false;
             pkt.wheel = 0;
             sleep_time = now;
-            if (current_poll_interval != POLL_INTERVAL_CPU_CLOCK) 
-                current_poll_interval = POLL_INTERVAL_CPU_CLOCK;
+            if (current_poll_interval != POLL_INTERVAL_ACTIVE_MS){
+                current_poll_interval = POLL_INTERVAL_ACTIVE_MS;
+                esb_init_tx();
+                k_timer_start(&polling_timer, K_MSEC(current_poll_interval), K_MSEC(current_poll_interval));
+            }
         }
 
         if (now - sleep_time >= SLEEP_THRESHOLD_MS) {
@@ -596,16 +640,23 @@ int main(void){
             //k_msleep(IDLE_SLEEP_MS);
         }else if (now - sleep_time >= IDLE_THRESHOLD_MS && current_poll_interval != POLL_INTERVAL_IDLE_MS) {
             current_poll_interval = POLL_INTERVAL_IDLE_MS;
+            esb_disable();
+            k_timer_start(&polling_timer, K_MSEC(current_poll_interval), K_MSEC(current_poll_interval));
         }
-        
 
-        if (current_poll_interval != POLL_INTERVAL_CPU_CLOCK) {
-            k_msleep(current_poll_interval);
-        }else{
-            while (k_cycle_get_32() - start_cycles < current_poll_interval) {
-
-            }
+        if(!is_dpi_button_pressed && is_dpi_save_pending && now - last_dpi_save >= DPI_SAVE_INTERVAL_MS){
+            save_dpi();
+            is_dpi_save_pending = false;
         }
+        // if (current_poll_interval != POLL_INTERVAL_CPU_CLOCK) {
+        //     k_msleep(current_poll_interval);
+        //     /* debug print ESB state while idle */
+        //     //LOG_ERR("ESB state: OFF\n");
+        // }else{
+        //     while (k_cycle_get_32() - deadline < 0) {
+                
+        //     }
+        // }
     }
 
     return 0;
