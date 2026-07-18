@@ -78,6 +78,11 @@ Finally to flash the firmware to the board, connect your board to your computer,
 - When mouse idle for more than 4 mins, it will shutdown until you press left click.
 - DPI value in mouse code is hand measurement, i use a ruler to calculate the resolution value of the mouse sensor, around 102 is equilevent to 3200 DPI.
 - Also in mouse code, i commented out the setting function, nRF have local storage for setting, but last time i used it somehow brick the board. So for safety concern i don't use that function.
+- I was experimenting with some code, and made the board brick. I recommend you to update the board bootloader to newest nicenano bootloader ([here](https://github.com/adafruit/Adafruit_nRF52_Bootloader/releases)), use j-link (or if you don't have j-link usb, use a spare board like pico or rp2040 based board with Picoprobe firmware), connect correct pins to nrf52480 swd pads (swdclk, swdio and ground, use usb to power it) and upload via pyocd (open Nrf Connect terminal in visual code and run)
+  ```
+  pyocd erase -t nrf52840 --chip
+  pyocd flash -t nrf52840 nice_nano_bootloader-0.11.0_s140_6.1.1.hex
+  ```
 
 
 # Demo (early prototype)
